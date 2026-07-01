@@ -1,0 +1,15 @@
+﻿e: () => {
+            this.isShowCaptionConfig = false;
+            this.isChangingSubtitlePosition = true;
+          },
+          close: (captionFont: CaptionFont | null) => {
+            if (captionFont) {
+              this.captionFont = captionFont;
+              this.avPlayerController.captionFont = captionFont;
+            }
+            this.isShowCaptionConfig = false;
+          }
+        })
+      }
+
+      if

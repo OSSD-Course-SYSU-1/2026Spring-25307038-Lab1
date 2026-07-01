@@ -1,0 +1,276 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "module description"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "description"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "ikun播放器"
+    },
+    {
+      "name": "reason_internet",
+      "value": "Used for accessing the Internet during video playback"
+    },
+    {
+      "name": "reason_get_network_info",
+      "value": "Used for retrieving network information during video playback"
+    },
+    {
+      "name": "reason_microphone",
+      "value": "Used for recording audio during AI captioning"
+    },
+    {
+      "name": "url_warn",
+      "value": "Please check if the url is valid!"
+    },
+    {
+      "name": "custom_url_placeholder",
+      "value": "Enter the video URL"
+    },
+    {
+      "name": "custom_url_dialog_cancel",
+      "value": "Cancel"
+    },
+    {
+      "name": "custom_url_dialog_submit",
+      "value": "Submit"
+    },
+    {
+      "name": "video_name_custom_url",
+      "value": "Play online video"
+    },
+    {
+      "name": "video_name_1",
+      "value": "Play online MP4 video"
+    },
+    {
+      "name": "video_name_2",
+      "value": "Play online M3U8 videos"
+    },
+    {
+      "name": "video_name_3",
+      "value": "Play local MP4 videos"
+    },
+    {
+      "name": "video_name_4",
+      "value": "Play local M3U8 videos"
+    },
+    {
+      "name": "video_name_5",
+      "value": "Play video with cache bar"
+    },
+    {
+      "name": "video_res_1",
+      "value": "test1.mp4"
+    },
+    {
+      "name": "video_res_2",
+      "value": "test2.mp4"
+    },
+    {
+      "name": "video_res_3",
+      "value": "network.mp4"
+    },
+    {
+      "name": "video_speed_0_5X",
+      "value": "0.5X"
+    },
+    {
+      "name": "video_speed_0_75X",
+      "value": "0.75X"
+    },
+    {
+      "name": "video_speed_1_0X",
+      "value": "1.0X"
+    },
+    {
+      "name": "video_speed_1_25X",
+      "value": "1.25X"
+    },
+    {
+      "name": "video_speed_1_75X",
+      "value": "1.75X"
+    },
+    {
+      "name": "video_speed_2_0X",
+      "value": "2.0X"
+    },
+    {
+      "name": "video_warn",
+      "value": "Please check if the network is connected or available!"
+    },
+    {
+      "name": "dialog_cancel",
+      "value": "Cancel"
+    },
+    {
+      "name": "dialog_play_speed",
+      "value": "Playback speed"
+    },
+    {
+      "name": "playing",
+      "value": "Playing"
+    },
+    {
+      "name": "video_scale_fit",
+      "value": "FIT"
+    },
+    {
+      "name": "video_scale_fit_crop",
+      "value": "FIT_CROP"
+    },
+    {
+      "name": "dialog_play_scale",
+      "value": "window scale mode"
+    },
+    {
+      "name": "local_video",
+      "value": "Local video"
+    },
+    {
+      "name": "caption_placeholder",
+      "value": "click to send comment"
+    },
+    {
+      "name": "Chinese",
+      "value": "Chinese"
+    },
+    {
+      "name": "English",
+      "value": "English"
+    },
+    {
+      "name": "language_switch",
+      "value": "Language switch"
+    },
+    {
+      "name": "subtitle_settings_title",
+      "value": "Subtitle Settings"
+    },
+    {
+      "name": "subtitle_font",
+      "value": "Font"
+    },
+    {
+      "name": "subtitle_font_size",
+      "value": "Font Size"
+    },
+    {
+      "name": "subtitle_font_color",
+      "value": "Color"
+    },
+    {
+      "name": "subtitle_not_available",
+      "value": "No subtitles available for this video"
+    },
+    {
+      "name": "subtitle_not_available_title",
+      "value": "No Subtitles"
+    },
+    {
+      "name": "subtitle_not_available_desc",
+      "value": "The current video does not contain subtitle tracks"
+    },
+    {
+      "name": "subtitle_font_condensed",
+      "value": "Condensed"
+    },
+    {
+      "name": "subtitle_choose_color",
+      "value": "Choose Color"
+    },
+    {
+      "name": "dialog_confirm",
+      "value": "Confirm"
+    },
+    {
+      "name": "video_playback_error",
+      "value": "该链接无法播放"
+    },
+    {
+      "name": "video_playback_error_back",
+      "value": "返回"
+    },
+    {
+      "name": "subtitle_position_hint",
+      "value": "长按字幕可拖动调整位置"
+    },
+    {
+      "name": "subtitle_change_position",
+      "value": "更改字幕位置"
+    },
+    {
+      "name": "subtitle_position_mode_hint",
+      "value": "拖动字幕调整位置，完成后点击完成"
+    },
+    {
+      "name": "subtitle_position_done",
+      "value": "完成"
+    },
+    {
+      "name": "video_quality_select",
+      "value": "选择清晰度"
+    },
+    {
+      "name": "video_link_title",
+      "value": "请输入视频链接"
+    },
+    {
+      "name": "video_quality_auto",
+      "value": "自动"
+    },
+    {
+      "name": "play_via_url",
+      "value": "通过链接播放视频"
+    },
+    {
+      "name": "ai_caption_toggle_on",
+      "value": "AI Caption On"
+    },
+    {
+      "name": "ai_caption_toggle_off",
+      "value": "AI Caption Off"
+    },
+    {
+      "name": "ai_caption_source_lang",
+      "value": "Source Language"
+    },
+    {
+      "name": "ai_caption_target_lang",
+      "value": "Translation"
+    },
+    {
+      "name": "ai_caption_auto_detect",
+      "value": "Auto Detect"
+    },
+    {
+      "name": "ai_caption_chinese",
+      "value": "Chinese"
+    },
+    {
+      "name": "ai_caption_english",
+      "value": "English"
+    },
+    {
+      "name": "ai_caption_japanese",
+      "value": "Japanese"
+    },
+    {
+      "name": "ai_caption_no_translation",
+      "value": "No Translation"
+    },
+    {
+      "name": "ai_caption_bilingual",
+      "value": "Bilingual"
+    },
+    {
+      "name": "ai_caption_mic_mode",
+      "value": "Mic Capture"
+    }
+  ]
+}

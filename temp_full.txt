@@ -1,0 +1,795 @@
+﻿/*
+ * Copyright (c) 2025 Huawei Device Co., Ltd.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { display, window } from '@kit.ArkUI';
+import { emitter } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+import { common } from '@kit.AbilityKit';
+import { AvPlayerController } from '../controller/AvPlayerController';
+import { VideoOperate } from '../components/VideoOperate';
+import { ExitVideo } from '../components/ExitVideo';
+import { SetVolume } from '../components/SetVolume'
+import { TimeUtil } from '../common/utils/TimeUtils';
+import { GlobalContext } from '../common/utils/GlobalContext';
+import { CommonConstants } from '../common/constants/CommonConstants';
+import { VideoData } from '../model/VideoData';
+import { PiPWindowController } from '../controller/PipWindowController';
+import { SetBrightness } from '../components/SetBirghness';
+import { CaptionFontComponent } from '../components/CaptionFontComponent';
+import { CaptionFont, SubtitleConstants, registerMyFont } from '../model/SubtitleConfig';
+import { AICaptionComponent, AICaptionController, AICaptionOptions } from '@kit.SpeechKit';
+import { AudioBridge } from '../utils/AudioBridge';
+import { AiCaptionConstants, AiCaptionLangOption } from '../model/AiCaptionConfig';
+import { BusinessError } from '@kit.BasicServicesKit';
+
+const SURFACE_WIDTH = 0.9; // Surface width ratio
+const SURFACE_HEIGHT = 1.78; // Surface height ratio
+const TIMEOUT = 0; // Timer ID
+const SET_TIME_OUT = 8000; // Interval: 8s
+const SET_VOLUME_TIME_OUT = 5000 // VolumeTimer: 5s
+const TAG = '[BasicVideoPlayer]';
+
+@Component
+export struct BasicVideoPlayer {
+  @Consume('systemStatusAreaHeight') systemStatusAreaHeight: number;
+  @Consume('pageStack') pageStack: NavPathStack;
+  @Prop videoData: VideoData;
+  @State isSwiping: boolean = false;
+  @State isClickScreen: boolean = false;
+  @State @Watch('onIsFullScreenChange') isFullScreen: boolean = false;
+  @State surfaceW: number = 0;
+  @State surfaceH: number = 0;
+  @State volume: number = 5;
+  @State volumeVisible: boolean = false
+  @State show: boolean = false; // Indicates whether the videoPanel component is displayed.
+  @State percent: number = 0;
+  @State windowWidth: number = 300;
+  @State windowHeight: number = 300;
+  @State isCalcWHFinished: boolean = false;
+  @State brightnessVisible: boolean = false; //whether to show slider/image
+  @State screenBrightness: number = 0; //screen luminance
+  @State isShowCaptionConfig: boolean = false; //whether to show caption settings
+  @State isChangingSubtitlePosition: boolean = false; // subtitle position drag mode
+  @State captionFont: CaptionFont = SubtitleConstants.DEFAULT_CAPTION_FONT;
+  @State showPlaybackError: boolean = false;
+  @State playbackErrorMessage: string = '';
+  @State showMoreMenu: boolean = false;
+
+  // AI Caption states
+  @State isAiCaptionShown: boolean = false;
+  @State isAiCaptionConfigShown: boolean = false;
+  @State aiSourceLang: string = AiCaptionConstants.SOURCE_LANG_ZH;
+  @State aiTargetLang: string = AiCaptionConstants.TARGET_LANG_ZH;
+  @State useMicCapture: boolean = false;
+  @State aiCaptionOpacity: number = 0.8;
+
+  // Subtitle position state (relative position: 0-1)
+  @State subtitleRelX: number = 0.5;
+  @State subtitleRelY: number = 0.85;
+  @State isDraggingSubtitle: boolean = false;
+
+  private screenHeight: number = 0; //screen height
+  @Link avPlayerController: AvPlayerController;
+  private uiAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+  private windowClass = this.uiAbilityContext.windowStage.getMainWindowSync();
+  private surfaceId: string = '';
+  private timeout: number = 0; // Timer ID
+  private volumeTimeout: number = 0; // VolumeTimer ID
+  private xComponentController: XComponentController = new XComponentController();
+  private pipWindowController: PiPWindowController =
+    new PiPWindowController(this.avPlayerController, this.xComponentController); //the instance of picture in picture
+  private aiCaptionController: AICaptionController = new AICaptionController();
+  private aiCaptionOptions?: AICaptionOptions;
+  private audioBridge: AudioBridge = new AudioBridge();
+
+  onIsFullScreenChange() {
+    if (this.isFullScreen) {
+      this.screenHeight = this.windowClass.getWindowProperties().windowRect.width;
+    } else {
+      this.screenHeight = this.windowClass.getWindowProperties().windowRect.height;
+    }
+  }
+
+  setTimer(): void {
+    let that = this;
+    this.timeout = setTimeout(() => {
+      that.isClickScreen = false; // Hide the operation panel
+    }, SET_TIME_OUT); // Hide in 8 seconds
+  }
+
+  clearTimer(): void {
+    if (this.timeout !== TIMEOUT) {
+      clearTimeout(this.timeout);
+      this.timeout = TIMEOUT;
+    }
+  }
+
+  setVolumeTimer(): void {
+    this.volumeTimeout = setTimeout(() => {
+      this.volumeVisible = false
+    }, SET_VOLUME_TIME_OUT)
+  }
+
+  clearVolumeTimer(): void {
+    if (this.volumeTimeout !== TIMEOUT) {
+      clearTimeout(this.volumeTimeout);
+      this.volumeTimeout = TIMEOUT;
+    }
+  }
+
+  aboutToAppear() {
+    this.windowWidth = display.getDefaultDisplaySync().width;
+    this.windowHeight = display.getDefaultDisplaySync().height;
+    this.surfaceW = (GlobalContext.getContext().getObject('windowWidth') as number) * SURFACE_WIDTH;
+    this.surfaceH = this.surfaceW / SURFACE_HEIGHT;
+    this.avPlayerController.isPlaying = true;
+
+    this.screenHeight = this.windowClass.getWindowProperties().windowRect.height;
+
+    registerMyFont(this.getUIContext());
+
+    this.captionFont = this.avPlayerController.captionFont;
+
+    // Initialize AI Caption options
+    this.initAiCaption();
+
+    // Restore saved subtitle position
+    let savedX = AppStorage.get<number>('subtitleRelX');
+    let savedY = AppStorage.get<number>('subtitleRelY');
+    if (savedX !== undefined) this.subtitleRelX = savedX;
+    if (savedY !== undefined) this.subtitleRelY = savedY;
+
+    // listen rotation
+    display.on('change', async () => {
+      let rotation = await display.getDefaultDisplaySync().rotation;
+      if (rotation === 0 || rotation === 2) {
+        this.isFullScreen = false;
+      } else {
+        this.isFullScreen = true;
+      }
+      // Unlock orientation when exiting fullscreen for consistent behavior
+      if (!this.isFullScreen) {
+        try {
+          await this.windowClass.setPreferredOrientation(window.Orientation.UNSPECIFIED);
+        } catch (err) {
+          hilog.info(CommonConstants.LOG_DOMAIN, TAG,
+            `setPreferredOrientation unlock failed, code is ${err.code}, message is ${err.message}`);
+        }
+      }
+    });
+
+    emitter.on(CommonConstants.AVPLAYER_PREPARED, (res) => {
+      if (res.data) {
+        this.percent = res.data.percent;
+        this.setVideoWH();
+        this.isCalcWHFinished = true;
+      }
+    });
+    emitter.on(CommonConstants.innerEventTrue, (res) => {
+      if (res.data) {
+        this.avPlayerController.isPlaying = res.data.flag;
+      }
+    });
+    emitter.on(CommonConstants.innerEventFalse, (res) => {
+      if (res.data) {
+        this.avPlayerController.isPlaying = res.data.flag;
+      }
+    });
+    emitter.on(CommonConstants.innerEventWH, (res) => {
+      if (res.data) {
+        this.windowWidth = res.data.width;
+        this.windowHeight = res.data.height;
+        this.setVideoWH();
+      }
+    });
+    if (!this.avPlayerController.isPlaying) {
+      this.clearTimer();
+    }
+
+    this.pipWindowController.createPipController();
+
+    emitter.on(CommonConstants.AVPLAYER_ERROR, (res) => {
+      if (res.data) {
+        this.showPlaybackError = true;
+        let dataObj = res.data as object;
+        this.playbackErrorMessage = dataObj['message'] as string || '该链接无法播放';
+      }
+    });
+  }
+
+  aboutToDisappear() {
+    this.avPlayerController.videoRelease();
+    emitter.off(CommonConstants.innerEventFalse.eventId);
+    emitter.off(CommonConstants.innerEventTrue.eventId);
+    emitter.off(CommonConstants.innerEventFalse.eventId);
+    emitter.off(CommonConstants.innerEventWH.eventId);
+    emitter.off(CommonConstants.AVPLAYER_ERROR.eventId);
+
+    display.off('change');
+
+    this.pipWindowController.destroyPipController();
+
+    // Release AI Caption resources
+    this.audioBridge.release();
+  }
+
+  onPageHide() {
+    this.avPlayerController.videoPause();
+  }
+
+  setVideoWH(): void {
+    if (this.percent >= 1) { // Horizontal video
+      this.surfaceW = Math.round(this.windowWidth);
+      this.surfaceH = Math.round(this.surfaceW / this.percent);
+    } else { // Vertical video
+      this.surfaceH = Math.round(this.windowHeight);
+      this.surfaceW = Math.round(this.surfaceH * this.percent);
+    }
+  }
+
+  openCaptionSettings(): void {
+    this.isShowCaptionConfig = true;
+  }
+
+  initAiCaption(): void {
+    this.aiCaptionOptions = {
+      initialOpacity: this.aiCaptionOpacity,
+      onPrepared: () => {
+        hilog.info(CommonConstants.LOG_DOMAIN, TAG, 'AI Caption prepared');
+      },
+      onError: (error: BusinessError) => {
+        hilog.error(CommonConstants.LOG_DOMAIN, TAG,
+          `AI Caption error, code: ${error.code}, message: ${error.message}`);
+      }
+    } as AICaptionOptions;
+  }
+
+  toggleAiCaption(): void {
+    this.isAiCaptionShown = !this.isAiCaptionShown;
+    if (this.isAiCaptionShown) {
+      // Only initialize once; re-creating options every toggle causes unnecessary work
+      if (!this.aiCaptionOptions) {
+        this.initAiCaption();
+      }
+    } else {
+      this.audioBridge.stopCapturing();
+    }
+  }
+
+  openAiCaptionConfig(): void {
+    this.isAiCaptionConfigShown = true;
+  }
+
+  onAiSourceLangChange(value: string): void {
+    this.aiSourceLang = value;
+    // Reset target language when source changes
+    if (value === AiCaptionConstants.SOURCE_LANG_ZH) {
+      this.aiTargetLang = AiCaptionConstants.TARGET_LANG_ZH;
+    } else {
+      this.aiTargetLang = AiCaptionConstants.TARGET_LANG_EN;
+    }
+  }
+
+  onAiTargetLangChange(value: string): void {
+    this.aiTargetLang = value;
+  }
+
+  getTargetLangOptions(): AiCaptionLangOption[] {
+    if (this.aiSourceLang === AiCaptionConstants.SOURCE_LANG_ZH) {
+      return AiCaptionConstants.TARGET_LANG_OPTIONS_ZH;
+    }
+    return AiCaptionConstants.TARGET_LANG_OPTIONS_EN;
+  }
+
+  @BuilderParam
+  progressBuilder?: () => void;
+
+  @Builder
+  AiCaptionConfigDialog() {
+    Column() {
+      Column() {
+        Text('AI 字幕设置')
+          .fontSize(18)
+          .fontWeight(700)
+          .fontColor(Color.White)
+          .margin({ bottom: 16 })
+          .width('100%')
+          .textAlign(TextAlign.Center)
+
+        // Source language
+        Text('源语言')
+          .fontSize(14)
+          .fontColor('rgba(255, 255, 255, 0.7)')
+          .width('100%')
+          .margin({ bottom: 8 })
+
+        Row({ space: 10 }) {
+          ForEach(AiCaptionConstants.SOURCE_LANG_OPTIONS,
+            (option: AiCaptionLangOption) => {
+              Button(option.label)
+                .fontSize(14)
+                .fontColor(this.aiSourceLang === option.value ? Color.Black : Color.White)
+                .backgroundColor(this.aiSourceLang === option.value ?
+                'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.15)')
+                .borderRadius(20)
+                .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+                .onClick(() => {
+                  this.onAiSourceLangChange(option.value);
+                })
+            }, (option: AiCaptionLangOption) => `src_${option.value}`)
+        }
+        .width('100%')
+        .margin({ bottom: 16 })
+
+        // Target language
+        Text('目标语言')
+          .fontSize(14)
+          .fontColor('rgba(255, 255, 255, 0.7)')
+          .width('100%')
+          .margin({ bottom: 8 })
+
+        Row({ space: 10 }) {
+          ForEach(this.getTargetLangOptions(),
+            (option: AiCaptionLangOption) => {
+              Button(option.label)
+                .fontSize(14)
+                .fontColor(this.aiTargetLang === option.value ? Color.Black : Color.White)
+                .backgroundColor(this.aiTargetLang === option.value ?
+                'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.15)')
+                .borderRadius(20)
+                .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+                .onClick(() => {
+                  this.onAiTargetLangChange(option.value);
+                })
+            }, (option: AiCaptionLangOption) => `tgt_${option.value}`)
+        }
+        .width('100%')
+        .margin({ bottom: 16 })
+
+        Divider().color('rgba(255,255,255,0.2)')
+
+        // Hint text
+        Text('AI 字幕将通过系统语音识别自动生成实时字幕。\n支持中文和英文，可进行翻译。')
+          .fontSize(12)
+          .fontColor('rgba(255, 255, 255, 0.5)')
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .margin({ top: 12, bottom: 12 })
+
+        Button('确定')
+          .fontSize(14)
+          .fontColor(Color.White)
+          .backgroundColor('rgba(255, 255, 255, 0.15)')
+          .borderRadius(20)
+          .padding({ left: 24, right: 24, top: 8, bottom: 8 })
+          .onClick(() => {
+            this.isAiCaptionConfigShown = false;
+          })
+      }
+      .width('80%')
+      .backgroundColor('#1A1A1A')
+      .borderRadius(16)
+      .padding({ top: 24, left: 20, right: 20, bottom: 20 })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor('rgba(0, 0, 0, 0.6)')
+    .onClick(() => {
+      this.isAiCaptionConfigShown = false;
+    })
+  }
+
+  @Builder
+  MoreMenuBuilder() {
+    Column() {
+      Column() {
+        Text('更多功能')
+          .fontSize(18)
+          .fontWeight(700)
+          .fontColor(Color.White)
+          .margin({ bottom: 16 })
+          .width('100%')
+          .textAlign(TextAlign.Center)
+
+        Row() {
+          Text('收藏')
+            .fontSize(16)
+            .fontColor(Color.White)
+          Blank()
+        }
+        .width('100%')
+        .padding({ top: 12, bottom: 12 })
+        .onClick(() => {
+          this.showMoreMenu = false;
+        })
+
+        Divider().color('rgba(255,255,255,0.2)')
+
+        Row() {
+          Text('分享')
+            .fontSize(16)
+            .fontColor(Color.White)
+          Blank()
+        }
+        .width('100%')
+        .padding({ top: 12, bottom: 12 })
+        .onClick(() => {
+          this.showMoreMenu = false;
+        })
+
+        Divider().color('rgba(255,255,255,0.2)')
+
+        Row() {
+          Text('下载')
+            .fontSize(16)
+            .fontColor(Color.White)
+          Blank()
+        }
+        .width('100%')
+        .padding({ top: 12, bottom: 12 })
+        .onClick(() => {
+          this.showMoreMenu = false;
+        })
+
+        Divider().color('rgba(255,255,255,0.2)')
+
+        Row() {
+          Text('举报')
+            .fontSize(16)
+            .fontColor(Color.White)
+          Blank()
+        }
+        .width('100%')
+        .padding({ top: 12, bottom: 12 })
+        .onClick(() => {
+          this.showMoreMenu = false;
+        })
+
+        Divider().color('rgba(255,255,255,0.2)')
+
+        Button('关闭')
+          .fontSize(14)
+          .fontColor(Color.White)
+          .backgroundColor('rgba(255,255,255,0.15)')
+          .borderRadius(20)
+          .padding({ left: 24, right: 24, top: 8, bottom: 8 })
+          .margin({ top: 12 })
+          .onClick(() => {
+            this.showMoreMenu = false;
+          })
+      }
+      .width('75%')
+      .backgroundColor('#1A1A1A')
+      .borderRadius(16)
+      .padding({ top: 24, left: 20, right: 20, bottom: 20 })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor('rgba(0, 0, 0, 0.6)')
+    .onClick(() => {
+      this.showMoreMenu = false;
+    })
+  }
+
+  @Builder
+  CoverXComponent() {
+    XComponent({
+      // Loading the video container
+      id: 'xComponent',
+      type: XComponentType.SURFACE,
+      controller: this.xComponentController
+    })
+      .onLoad(() => {
+        this.surfaceId = this.xComponentController.getXComponentSurfaceId();
+        this.avPlayerController.initAVPlayer(this.videoData, this.surfaceId);
+      })
+      .height(this.isCalcWHFinished ? `${this.surfaceH}px` : '100%')
+      .width(this.isCalcWHFinished ? `${this.surfaceW}px` : '100%')
+  }
+
+  build() {
+    Stack() {
+
+      Column() {
+        this.CoverXComponent()
+      }
+      .align(Alignment.TopStart)
+      .margin({ top: $r('app.float.size_80') })
+      .id('Video')
+      .justifyContent(FlexAlign.Center)
+
+      if (this.isFullScreen) {
+        Row() {
+          SetVolume({ volume: this.volume, volumeVisible: this.volumeVisible }).width('50%')
+          SetBrightness({ screenBrightness: this.screenBrightness, visible: this.brightnessVisible }).width('50%')
+        }
+        .width('100%')
+        .height('100%')
+      }
+
+      Text()
+        .height(`${this.surfaceH}px`)
+        .width(`${this.surfaceW}px`)
+        .margin({ top: $r('app.float.size_80') })
+        .backgroundColor(Color.Black)
+        .opacity($r('app.float.size_zero_five'))
+        .visibility(this.isSwiping ? Visibility.Visible : Visibility.Hidden)
+
+      Row() {
+        Text(TimeUtil.millisecondsToTime(this.avPlayerController.currentTime))
+          .fontSize($r('app.float.size_24'))
+          .opacity($r('app.float.size_1'))
+          .fontColor($r('app.color.slider_selected'))
+        Text('/' + TimeUtil.millisecondsToTime(this.avPlayerController.durationTime))
+          .fontSize($r('app.float.size_24'))
+          .opacity($r('app.float.size_1'))
+          .fontColor(Color.White)
+      }
+      .margin({ top: $r('app.float.size_80') })
+      .visibility(this.isSwiping ? Visibility.Visible : Visibility.Hidden)
+
+      Column() {
+        if (this.isClickScreen) {
+          Row() {
+            ExitVideo({ videoName: this.videoData.name, isFullScreen: this.isFullScreen })
+          }
+          .padding({ top: `${this.systemStatusAreaHeight}px` })
+          .width('100%')
+          .justifyContent(FlexAlign.Start)
+        }
+
+        Blank()
+        // Subtitle display with drag-to-move support
+        Column() {
+          Text(this.avPlayerController.currentCaption || '')
+            .fontColor(this.captionFont.color)
+            .fontSize(this.captionFont.size)
+            .fontFamily(this.captionFont.family)
+            .textAlign(TextAlign.Center)
+            .padding({ left: 16, right: 16, top: 6, bottom: 6 })
+            .borderRadius(8)
+            .backgroundColor(this.avPlayerController.currentCaption ? 'rgba(0, 0, 0, 0.5)' : Color.Transparent)
+            .border({
+              width: (this.isDraggingSubtitle || this.isChangingSubtitlePosition) ? 2 : 0,
+              color: Color.Red
+            })
+        }
+        .width('100%')
+        .margin({ bottom: 20 })
+        .position({
+          x: `${this.subtitleRelX * 100}%`,
+          y: `${this.subtitleRelY * 100}%`
+        })
+        .translate({
+          x: '-50%',
+          y: '-50%'
+        })
+        .gesture(
+          PanGesture({ direction: PanDirection.All })
+            .onActionStart(() => {
+              this.isDraggingSubtitle = true;
+            })
+            .onActionUpdate((event: GestureEvent) => {
+              let newX = this.subtitleRelX + this.getUIContext().px2vp(event.offsetX) / this.windowWidth;
+              let newY = this.subtitleRelY + this.getUIContext().px2vp(event.offsetY) / this.windowHeight;
+              // Clamp within screen bounds (0.05 - 0.95 for safety)
+              this.subtitleRelX = Math.max(0.05, Math.min(0.95, newX));
+              this.subtitleRelY = Math.max(0.05, Math.min(0.95, newY));
+            })
+            .onActionEnd(() => {
+              this.isDraggingSubtitle = false;
+              // Save position
+              AppStorage.setOrCreate('subtitleRelX', this.subtitleRelX);
+              AppStorage.setOrCreate('subtitleRelY', this.subtitleRelY);
+            })
+        )
+
+        // AI Caption component - auto-detects app audio and generates real-time subtitles
+        AICaptionComponent({
+          isShown: this.isAiCaptionShown,
+          controller: this.aiCaptionController,
+          options: this.aiCaptionOptions
+        })
+          .width('100%')
+          .height(60)
+          .margin({ bottom: 8 })
+
+        // Position mode done button - enlarged hit area
+        if (this.isChangingSubtitlePosition) {
+          Row() {
+            Button($r('app.string.subtitle_position_done'))
+              .fontSize(16)
+              .fontColor(Color.White)
+              .backgroundColor('rgba(0, 150, 255, 0.9)')
+              .borderRadius(24)
+              .padding({ left: 32, right: 32, top: 14, bottom: 14 })
+              .hitTestBehavior(HitTestMode.Default)
+              .onClick(() => {
+                this.isChangingSubtitlePosition = false;
+              })
+          }
+          .width('100%')
+          .justifyContent(FlexAlign.Center)
+          .position({ x: '50%', y: '92%' })
+          .translate({ x: '-50%', y: '0' })
+        }
+
+        if (this.isClickScreen && !this.isChangingSubtitlePosition) {
+          Column() {
+            // Progress bar
+            if (this.progressBuilder) {
+              VideoOperate({
+                avPlayerController: this.avPlayerController,
+                isSwiping: this.isSwiping,
+                isFullScreen: this.isFullScreen,
+                progressBuilder: this.progressBuilder,
+                onCaptionSettingClick: () => {
+                  this.openCaptionSettings();
+                },
+                onAiCaptionToggleClick: () => {
+                  this.toggleAiCaption();
+                },
+                onAiCaptionConfigClick: () => {
+                  this.openAiCaptionConfig();
+                },
+                onMoreMenuClick: () => {
+                  this.showMoreMenu = true;
+                }
+              })
+                .width('100%')
+            } else {
+              VideoOperate({
+                avPlayerController: this.avPlayerController,
+                isSwiping: this.isSwiping,
+                isFullScreen: this.isFullScreen,
+                onCaptionSettingClick: () => {
+                  this.openCaptionSettings();
+                },
+                onAiCaptionToggleClick: () => {
+                  this.toggleAiCaption();
+                },
+                onAiCaptionConfigClick: () => {
+                  this.openAiCaptionConfig();
+                },
+                onMoreMenuClick: () => {
+                  this.showMoreMenu = true;
+                }
+              })
+                .width('100%')
+            }
+
+          }
+          .justifyContent(FlexAlign.Center)
+        }
+      }
+      .onTouch((event: TouchEvent) => {
+        if (event.type == TouchType.Down || event.type == TouchType.Move) {
+          this.isClickScreen = true;
+          this.clearTimer();
+        } else if (event.type == TouchType.Up) {
+          this.setTimer();
+        }
+      })
+      .height('100%')
+      .width('100%')
+      if (this.isShowCaptionConfig) {
+        CaptionFontComponent({
+          captionFont: this.captionFont,
+          hasCaption: this.avPlayerController.hasCaption,
+          avPlayerController: this.avPlayerController,
+          onStartPositionChange: () => {
+            this.isShowCaptionConfig = false;
+            this.isChangingSubtitlePosition = true;
+          },
+          close: (captionFont: CaptionFont | null) => {
+            if (captionFont) {
+              this.captionFont = captionFont;
+              this.avPlayerController.captionFont = captionFont;
+            }
+            this.isShowCaptionConfig = false;
+          }
+        })
+      }
+
+      if (this.isAiCaptionConfigShown) {
+        this.AiCaptionConfigDialog()
+      }
+
+      if (this.showMoreMenu) {
+        this.MoreMenuBuilder()
+      }
+
+      if (this.showPlaybackError) {
+        Column() {
+          Text(this.playbackErrorMessage)
+            .fontSize(20)
+            .fontColor(Color.White)
+            .fontWeight(FontWeight.Medium)
+            .margin({ bottom: 24 })
+
+          Button($r('app.string.video_playback_error_back'))
+            .backgroundColor('#ffffff')
+            .fontColor('#333333')
+            .fontSize(16)
+            .borderRadius(20)
+            .padding({ left: 32, right: 32, top: 10, bottom: 10 })
+            .onClick(() => {
+              this.showPlaybackError = false;
+              this.avPlayerController.playbackError = false;
+              this.avPlayerController.errorMessage = '';
+              this.avPlayerController.videoRelease();
+              this.pageStack.pop();
+            })
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor('rgba(0, 0, 0, 0.92)')
+        .zIndex(100)
+      }
+    }
+    .gesture(
+      //sliding in the vertical direction
+      PanGesture({ direction: PanDirection.Vertical })
+        .onActionStart(() => {
+        })
+        .onActionUpdate((event: GestureEvent) => {
+          //the area on the right side of the screen
+          if (event.fingerList[0].globalX > (820 / 2)) {
+            this.brightnessVisible = true;
+            let curBrightness = this.screenBrightness -
+              this.getUIContext().vp2px(event.offsetY) / this.screenHeight;
+            curBrightness = curBrightness >= 1.0 ? 1.0 : curBrightness;
+            curBrightness = curBrightness <= 0.0 ? 0.0 : curBrightness;
+            this.screenBrightness = curBrightness;
+            hilog.info(CommonConstants.LOG_DOMAIN, TAG, 'this brightness is: ' + this.screenBrightness);
+
+          } else {
+            this.brightnessVisible = false;
+            let curVolume = this.volume - this.getUIContext().vp2px(event.offsetY) / this.screenHeight;
+            curVolume = curVolume >= 15.0 ? 15.0 : curVolume;
+            curVolume = curVolume <= 0.0 ? 0.0 : curVolume;
+            this.volume = curVolume;
+            hilog.info(CommonConstants.LOG_DOMAIN, TAG, 'this volume is: ' + this.volume);
+          }
+        })
+        .onActionEnd(() => {
+          setTimeout(() => {
+            this.brightnessVisible = false;
+          }, 3000)
+        })
+    )
+
+    .gesture(
+      LongPressGesture({ repeat: true })
+        .onAction(() => {
+          this.avPlayerController.videoSpeedTwo();
+          AppStorage.setOrCreate('speedName', $r('app.string.video_speed_2_0X'));
+          AppStorage.setOrCreate('speedIndex', 5);
+        })
+        .onActionEnd(() => {
+          this.avPlayerController.videoSpeedOne();
+          AppStorage.setOrCreate('speedName', $r('app.string.video_speed_1_0X'));
+          AppStorage.setOrCreate('speedIndex', 2);
+        })
+    )
+    .backgroundColor(Color.Black)
+    .height('100%')
+    .width('100%')
+  }
+}
+
